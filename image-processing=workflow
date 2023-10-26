@@ -1,0 +1,172 @@
+{
+  "StartAt": "Face Detection",
+  "States": {
+    "Face Detection": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "arn:aws:lambda:us-east-1:532599531434:function:FaceDetectionFunction:$LATEST"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "ResultPath": "$.detectedFaceDetails",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "PhotoDoesNotMeetRequirementError",
+            "InvalidS3ObjectException"
+          ],
+          "Next": "Photo Does Not Meet Requirement",
+          "ResultPath": "$.errorInfo"
+        }
+      ],
+      "Next": "Check Face Duplicate"
+    },
+    "Check Face Duplicate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "arn:aws:lambda:us-east-1:532599531434:function:FaceSearchFunction:$LATEST"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "ResultPath": "$.Inputs",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "FaceAlreadyExistsError"
+          ],
+          "Next": "Photo Does Not Meet Requirement",
+          "ResultPath": "$.errorInfo"
+        }
+      ],
+      "Next": "Parallel"
+    },
+    "Parallel": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "AddFaceToIndex",
+          "States": {
+            "AddFaceToIndex": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:532599531434:function:IndexFaceFunction:$LATEST"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Thumbnail",
+          "States": {
+            "Thumbnail": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "arn:aws:lambda:us-east-1:532599531434:function:ThumbnailFunction:$LATEST"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.parallelResult",
+      "Next": "PersistMetadata"
+    },
+    "PersistMetadata": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "ws-step-function-orchestration-template-RiderPhotoDDBTableFEF88B5F-1BW4KYHSMW5CW",
+        "Item": {
+          "Username": {
+            "S.$": "$.userId"
+          },
+          "faceId": {
+            "S.$": "$.parallelResult[0].Payload.FaceId"
+          },
+          "s3bucket": {
+            "S.$": "$.s3Bucket"
+          },
+          "s3key": {
+            "S.$": "$.s3Key"
+          },
+          "thumbnail": {
+            "M": {
+              "s3bucket": {
+                "S.$": "$.parallelResult[1].Payload.thumbnail.s3bucket"
+              },
+              "s3key": {
+                "S.$": "$.parallelResult[1].Payload.thumbnail.s3key"
+              }
+            }
+          }
+        }
+      },
+      "End": true
+    },
+    "Photo Does Not Meet Requirement": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "Message.$": "$",
+        "TopicArn": "arn:aws:sns:us-east-1:532599531434:ws-step-function-orchestration-template-NotifyMe866FE283-dMN2IBJyxJg5"
+      },
+      "End": true
+    }
+  }
+}
