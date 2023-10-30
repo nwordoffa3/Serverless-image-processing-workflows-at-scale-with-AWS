@@ -1,4 +1,4 @@
-# README.md for AWS Step Functions Workshop at AWS GOTO EDA 2023
+# AWS Step Functions Workshop at AWS GOTO EDA 2023
 
 ## Overview
 
